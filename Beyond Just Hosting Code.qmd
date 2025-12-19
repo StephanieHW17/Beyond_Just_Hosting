@@ -1,0 +1,353 @@
+---
+title: "707 Group Project"
+author: "Group 3"
+format: html
+editor: visual
+---
+
+# Load the packages
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+rm(list = ls())
+library(car)
+
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(reshape2)
+library(readr)
+library(caret)
+library(lubridate)
+
+```
+
+# Load the Dataset
+
+```{r}
+listing <- read_csv("listings.csv")
+data(listing)
+summary(listing)
+head(listing)
+
+```
+
+# Data Cleaning
+
+```{r}
+# Define the variables to keep
+selected_vars <- c(
+  "id", "listing_url", "name", "description", "accommodates", "host_id", "host_name", "host_since",
+  "host_response_time", "host_response_rate", "host_acceptance_rate", "host_is_superhost",
+  "host_total_listings_count", "host_identity_verified", "property_type", "room_type",
+  "amenities", "price", "availability_30", "availability_60", "availability_90", 
+  "availability_365", "number_of_reviews", "number_of_reviews_ltm", "review_scores_accuracy",
+  "review_scores_checkin", "review_scores_cleanliness", "review_scores_communication",
+  "review_scores_location", "review_scores_rating", "review_scores_value", "instant_bookable",
+  "region_id", "region_name", "region_parent_id", "region_parent_name", "reviews_per_month"
+)
+
+# Select only the specified columns
+listing_selected <- listing %>%
+  select(all_of(selected_vars))
+
+# Display the first few rows of the dataset
+head(listing_selected)
+```
+
+## Rename Columns
+
+```{r}
+# Define the new column names (Capital → Lowercase)
+colnames <- c(
+  "ID" = "id",
+  "Listing_URL" = "listing_url",
+  "Listing_Name" = "name",
+  "Description" = "description",
+  "Accommodates" ="accommodates",
+  "Host_ID" = "host_id",
+  "Host_Name" = "host_name",
+  "Host_Since" = "host_since",
+  "Host_Response_Time" = "host_response_time",
+  "Host_Response_Rate" = "host_response_rate",
+  "Host_Acceptance_Rate" = "host_acceptance_rate",
+  "Superhost_Status" = "host_is_superhost",
+  "Total_Listings_By_Host" = "host_total_listings_count",
+  "Host_Identity_Verified" = "host_identity_verified",
+  "Property_Type" = "property_type",
+  "Room_Type" = "room_type",
+  "Amenities" = "amenities",
+  "Price" = "price",
+  "Availability_30_Days" = "availability_30",
+  "Availability_60_Days" = "availability_60",
+  "Availability_90_Days" = "availability_90",
+  "Availability_365_Days" = "availability_365",
+  "Total_Reviews" = "number_of_reviews",
+  "Number_of_Reviews_12m" = "number_of_reviews_ltm",  # Reverting back
+  "Accuracy" = "review_scores_accuracy",
+  "Check-in" = "review_scores_checkin",
+  "Cleanliness" = "review_scores_cleanliness",
+  "Communication" = "review_scores_communication",
+  "Location" = "review_scores_location",
+  "Overall_Rating" = "review_scores_rating",
+  "Value" = "review_scores_value",
+  "Instant_Bookable" = "instant_bookable",
+  "Region_ID" = "region_id",
+  "Region_Name" = "region_name",
+  "Region_Parent_ID" = "region_parent_id",
+  "Region_Parent_Name" = "region_parent_name",
+  "Reviews_Per_Month" = "reviews_per_month"
+)
+
+# Rename columns 
+listing_selected <- listing_selected %>%
+  rename(any_of(colnames))
+
+# Display the updated column names
+print(colnames(listing_selected))
+
+
+```
+
+## Filter Superhost in Each Region
+
+```{r}
+# Create a table counting Superhosts per region
+superhost_count_by_region <- listing %>%
+  filter(host_is_superhost == TRUE) %>%  # Filter only Superhosts
+  group_by(region_parent_name) %>%
+  summarise(superhost_count = n(), .groups = "drop") %>%
+  arrange(desc(superhost_count))  # Sort by highest number of Superhosts
+
+# Display the table
+print(superhost_count_by_region)
+```
+
+```{r}
+
+# Create a summary table with Superhost count and proportion
+superhost_summary <- listing_selected %>%
+  group_by(Region_Parent_Name) %>%
+  summarise(
+    total_listings = n(),  # Total listings per region
+    superhost_count = sum(Superhost_Status == TRUE, na.rm = TRUE),  # Count of Superhosts
+    superhost_ratio = round((superhost_count / total_listings) * 100, 2)  # Percentage of Superhosts
+  ) %>%
+  arrange(superhost_ratio)  # Sort by Superhost proportion
+
+# Display the table
+print(superhost_summary)
+
+
+# Filter only for Auckland
+auckland_superhost_summary <- superhost_summary %>%
+  filter(Region_Parent_Name == "Auckland")
+
+# Display the filtered result
+print(auckland_superhost_summary)
+
+# Filter only for Queenstown
+Queenstown_superhost_summary <- superhost_summary %>%
+  filter(Region_Parent_Name == "Queenstown-Lakes District")
+
+# Display the filtered result
+print(Queenstown_superhost_summary)
+```
+
+# Select Queenstown data
+
+```{r}
+# Step 1: Filter dataset for listings located in Queenstown
+listing_queenstown <- listing_selected %>%
+  filter(Region_Parent_Name == "Queenstown-Lakes District")  
+
+# Check for missing values (but keep them)
+print("Missing values in Queenstown dataset:")
+print(colSums(is.na(listing_queenstown)))  
+
+# Display first few rows of the Queenstown-specific dataset
+head(listing_queenstown)
+
+# Output message
+print("Queenstown-specific dataframe created successfully (NAs retained)!")
+
+```
+
+## Preparing Data for Analysis
+
+```{r}
+
+# Define the reference date (January 6, 2025)
+reference_date <- as.Date("2025-01-06")
+
+# Calculate months active and drop Host_Since column
+listing_queenstown <- listing_queenstown %>%
+  mutate(Months_Active = interval(as.Date(Host_Since), reference_date) %/% months(1)) %>%
+  select(-Host_Since)  # Drop the Host_Since column
+
+# Convert "N/A" to NA only in character columns
+listing_queenstown <- listing_queenstown %>%
+  mutate(across(where(is.character), ~ na_if(.x, "N/A")))
+
+# Remove rows where any column contains "N/A" and drop NA values
+listing_queenstown <- listing_queenstown %>%
+  filter(if_any(everything(), ~ . != "N/A")) %>%
+  drop_na()  # Remove real NA values
+
+#Removing $ sign from Price and ensuring it is numeric & Filter out listings with Price > 4000
+listing_queenstown <- listing_queenstown %>%
+  mutate(Price = as.numeric(gsub("[$,]", "", Price))) %>%
+  filter(Price <= 6000)
+
+# Check if the filtering worked
+summary(listing_queenstown$Price)  # Ensure max price is now <= 6000
+
+#Removing % sign from Host_Acceptance_Rate and Host_Response_Rate, ensuring they are numeric
+listing_queenstown <- listing_queenstown %>%
+  mutate(Host_Acceptance_Rate = as.numeric(gsub("[,%]", "", Host_Acceptance_Rate))) 
+listing_queenstown <- listing_queenstown %>%
+  mutate(Host_Response_Rate = as.numeric(gsub("[,%]", "", Host_Response_Rate)))
+
+
+# Convert "TRUE" to 1 and "FALSE" to 0 for Host_Identity_Verified
+listing_queenstown <- listing_queenstown %>%
+  mutate(Host_Identity_Verified = as.numeric(Host_Identity_Verified == "TRUE"))
+
+# View updated dataset
+head(listing_queenstown)
+```
+
+## Filter Superhosts for Queenstown
+
+```{r}
+# Filter dataset for Superhosts in Queenstown from `listing_queenstown`
+listing_superhost_queenstown <- listing_queenstown %>%
+  filter(Superhost_Status == TRUE | Superhost_Status == "TRUE")  # Ensure it works for logical & character values
+
+# Check for missing values (but keep them)
+print("Missing values in Superhost Queenstown dataset:")
+print(colSums(is.na(listing_superhost_queenstown)))  
+
+# Display first few rows of the Superhost dataset for Queenstown
+head(listing_superhost_queenstown)
+
+# Output message
+print("Superhost Queenstown-specific dataframe created successfully (NAs retained)!")
+```
+
+# Clustering
+
+```{r}
+
+# Step 1: Select numeric variables for clustering (exclude non-numeric columns)
+cluster_qtn_superhost <- listing_superhost_queenstown %>%
+  select(Price, Overall_Rating, Room_Type, Availability_60_Days, Accommodates, Total_Reviews, Region_Name)  # Keep only numeric features
+ 
+
+# Step 2: Ensure only numeric columns are used for clustering
+cluster_qtn_superhost_scaled <- scale(select_if(cluster_qtn_superhost, is.numeric))
+
+# Step 4: Perform K-Means Clustering
+set.seed(123)
+kmeans_result_qtn_superhost <- kmeans(cluster_qtn_superhost_scaled, centers = 3, nstart = 10)
+
+# Step 5: Assign cluster labels back to listing_auckland
+listing_superhost_queenstown$Cluster <- as.factor(kmeans_result_qtn_superhost$cluster)
+
+# Step 6: Visualize the clusters
+ggplot(listing_superhost_queenstown, aes(x = Price, y = Total_Reviews, color = Cluster)) +
+  geom_point(alpha = 0.6) +
+  labs(title = "Airbnb Clusters in Queenstown (Price vs. Review Score)",
+       x = "Price per Night",
+       y = "Overall Rating") +
+  theme_minimal()
+ 
+```
+
+```{r}
+#  Compute Within-Cluster Sum of Squares (WCSS) for different k values
+set.seed(123)
+wcss <- sapply(1:10, function(k) {
+  kmeans(cluster_qtn_superhost_scaled, centers = k, nstart = 10)$tot.withinss
+})
+
+# Step 3: Create Scree Plot (Elbow Method)
+ggplot(data.frame(k = 1:10, wcss = wcss), aes(x = k, y = wcss)) +
+  geom_point(size = 3, color = "blue") +
+  geom_line(color = "blue", linetype = "dashed") +
+  labs(title = "Scree Plot (Elbow Method) for Optimal K",
+       x = "Number of Clusters (k)",
+       y = "Total Within-Cluster Sum of Squares (WCSS)") +
+  theme_minimal()
+
+# Optimal number is 3 
+```
+
+```{r}
+ggplot(listing_superhost_queenstown, aes(x = Region_Name, fill = Cluster)) +
+  geom_bar(position = "dodge") +  # Use "dodge" for side-by-side bars; "stack" for stacked bars
+  labs(title = "Cluster Distribution Across Regions",
+       x = "Region",
+       y = "Number of Listings",
+       fill = "Cluster") +
+  theme_minimal()
+```
+
+-   Overall - 2,1 and 3
+
+-   Arrowtown has the least number of listings and Queenstwon has the most
+
+```{r}
+listing_superhost_queenstown |>
+  group_by(Region_Name) %>%
+  summarise(superhost_count = n(), .groups = "drop")
+```
+
+```{r}
+# Select relevant numeric features including Room Type encoding
+cluster_qtn_superhost <- listing_superhost_queenstown %>%
+  select(Price, Overall_Rating, Availability_60_Days, 
+         Accommodates, Total_Reviews, Room_Type_Entire, Room_Type_Private)
+
+# Scale the data
+cluster_qtn_superhost_scaled <- scale(cluster_qtn_superhost)
+
+# Perform K-Means Clustering
+set.seed(123)
+kmeans_result_qtn_superhost <- kmeans(cluster_qtn_superhost_scaled, centers = 3, nstart = 10)
+
+# Assign cluster labels back to dataframe
+listing_superhost_queenstown$Cluster <- as.factor(kmeans_result_qtn_superhost$cluster)
+
+
+# Step 6: Visualize the clusters
+ggplot(listing_superhost_queenstown, aes(x = Cluster, fill = Room_Type)) +
+  geom_bar(position = "dodge") +
+  labs(title = "Distribution of Room Types Across Clusters",
+       x = "Cluster",
+       y = "Count",
+       fill = "Room Type") +
+  theme_minimal()
+
+#Summary analysis of clusters
+summary(listing_superhost_queenstown$Cluster)
+
+listing_superhost_queenstown %>%
+  group_by(Cluster, Room_Type) %>%
+  summarise(
+    Count = n(),
+    Avg_Price = mean(Price, na.rm = TRUE),
+    Avg_Reviews = mean(Total_Reviews, na.rm = TRUE),
+    Avg_Rating = mean(Overall_Rating, na.rm = TRUE),
+    Avg_Accommodates = mean(Accommodates, na.rm = TRUE)
+  ) %>%
+  arrange(Cluster, desc(Count))
+```
+
+# Logistical Regression - Not Final
+
+```{r}
+logistic_q <- glm(Superhost_Status ~ Host_Response_Rate + Host_Acceptance_Rate + Total_Listings_By_Host + Availability_60_Days + Price + Total_Reviews + Overall_Rating + Instant_Bookable + Reviews_Per_Month + Months_Active  , data = listing_queenstown, family = binomial)
+
+summary(logistic_q)
+```
