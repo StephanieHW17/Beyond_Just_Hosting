@@ -1,4 +1,5 @@
-### 🏡 Beyond Just Hosting: Airbnb Superhost Success Analysis (Queenstown, NZ)
+### # Beyond Just Hosting: Airbnb Superhost Success Analysis
+
 **What:** Conducted a marketing analytics team project to identify key success factors behind Airbnb Superhosts in Queenstown, New Zealand — one of the regions with the highest Superhost concentration  
 **How:** Logistic regression, clustering analysis, sentiment analysis, and insight synthesis  
 **Impact:** Delivered actionable insights and strategic recommendations to help hosts improve listing performance and guest experience  
